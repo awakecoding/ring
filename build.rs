@@ -649,7 +649,30 @@ fn cc(
     c
 }
 
+fn armasm(file: &Path, arch: &str, out_file: &Path, include_dir: &Path) -> Command {
+    // Nasm requires that the path end in a path separator.
+    let mut include_dir = include_dir.as_os_str().to_os_string();
+    include_dir.push(std::ffi::OsString::from(String::from(
+        std::path::MAIN_SEPARATOR,
+    )));
+
+    let mut c = Command::new("clang.exe");
+    let _ = c
+        .arg("-I")
+        .arg("include/")
+        .arg("-I")
+        .arg(include_dir)
+        .arg("-o")
+        .arg(out_file.to_str().expect("Invalid path"))
+        .arg("-c")
+        .arg(file);
+    c
+}
+
 fn nasm(file: &Path, arch: &str, out_file: &Path, include_dir: &Path) -> Command {
+    if arch == "aarch64" {
+        return armasm(file, arch, out_file, include_dir);
+    }
     let oformat = match arch {
         "x86_64" => ("win64"),
         "x86" => ("win32"),
