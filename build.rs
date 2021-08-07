@@ -114,7 +114,7 @@ fn c_flags(target: &Target) -> &'static [&'static str] {
 }
 
 fn cpp_flags(target: &Target) -> &'static [&'static str] {
-    if target.env != MSVC {
+    if target.env != MSVC || target.arch == AARCH64 {
         static NON_MSVC_FLAGS: &[&str] = &[
             "-pedantic",
             "-pedantic-errors",
@@ -228,6 +228,13 @@ const ASM_TARGETS: &[AsmTarget] = &[
         asm_extension: "asm",
         preassemble: true,
     },
+    AsmTarget {
+        oss: &[WINDOWS],
+        arch: "aarch64",
+        perlasm_format: "win64",
+        asm_extension: "S",
+        preassemble: true,
+    },
 ];
 
 struct AsmTarget {
@@ -309,7 +316,7 @@ fn ring_build_rs_main() {
     let arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
     let os = env::var("CARGO_CFG_TARGET_OS").unwrap();
     let env = env::var("CARGO_CFG_TARGET_ENV").unwrap();
-    let (obj_ext, obj_opt) = if env == MSVC {
+    let (obj_ext, obj_opt) = if env == MSVC && arch != AARCH64 {
         (MSVC_OBJ_EXT, MSVC_OBJ_OPT)
     } else {
         ("o", "-o")
@@ -361,11 +368,20 @@ fn pregenerate_asm_main() {
         if asm_target.preassemble {
             if !std::mem::replace(&mut generated_prefix_headers, true) {
                 generate_prefix_symbols_nasm(&pregenerated, &ring_core_prefix()).unwrap();
+                // We also need to generate prefix_symbols_asm.h for Windows ARM64
+                generate_prefix_symbols_header(
+                    &pregenerated,
+                    "prefix_symbols_asm.h",
+                    '#',
+                    None,
+                    &ring_core_prefix(),
+                )
+                .unwrap();
             }
             let srcs = asm_srcs(perlasm_src_dsts);
             for src in srcs {
                 let obj_path = obj_path(&pregenerated, &src, MSVC_OBJ_EXT);
-                run_command(nasm(&src, asm_target.arch, &obj_path, &pregenerated));
+                run_command(win_asm(&src, asm_target.arch, &obj_path, &pregenerated));
             }
         }
     }
@@ -477,7 +493,6 @@ fn build_library(
     let objs = additional_srcs
         .iter()
         .chain(srcs.iter())
-        .filter(|f| &target.env != "msvc" || f.extension().unwrap().to_str().unwrap() != "S")
         .map(|f| compile(f, target, warnings_are_errors, out_dir))
         .collect::<Vec<_>>();
 
@@ -524,10 +539,10 @@ fn compile(p: &Path, target: &Target, warnings_are_errors: bool, out_dir: &Path)
     } else {
         let mut out_path = out_dir.join(p.file_name().unwrap());
         assert!(out_path.set_extension(target.obj_ext));
-        let cmd = if target.os != WINDOWS || ext != "asm" {
+        let cmd = if target.os != WINDOWS || (ext != "asm" && ext != "S") {
             cc(p, ext, target, warnings_are_errors, &out_path, out_dir)
         } else {
-            nasm(p, &target.arch, &out_path, out_dir)
+            win_asm(p, &target.arch, &out_path, out_dir)
         };
 
         run_command(cmd);
@@ -552,6 +567,11 @@ fn cc(
     let is_musl = target.env.starts_with("musl");
 
     let mut c = cc::Build::new();
+
+    if target.os == WINDOWS && target.arch == AARCH64 {
+        let _ = c.compiler("clang");
+    }
+
     let _ = c.include("include");
     let _ = c.include(include_dir);
     match ext {
@@ -588,7 +608,7 @@ fn cc(
         let _ = c.define("NDEBUG", None);
     }
 
-    if &target.env == "msvc" {
+    if target.env == MSVC && target.arch != AARCH64 {
         if std::env::var("OPT_LEVEL").unwrap() == "0" {
             let _ = c.flag("/Od"); // Disable optimization for debug builds.
                                    // run-time checking: (s)tack frame, (u)ninitialized variables
@@ -614,7 +634,7 @@ fn cc(
     }
 
     if warnings_are_errors {
-        let flag = if &target.env != "msvc" {
+        let flag = if target.env != MSVC || target.arch == AARCH64 {
             "-Werror"
         } else {
             "/WX"
@@ -642,10 +662,11 @@ fn cc(
     c
 }
 
-fn nasm(file: &Path, arch: &str, out_file: &Path, include_dir: &Path) -> Command {
+fn win_asm(file: &Path, arch: &str, out_file: &Path, include_dir: &Path) -> Command {
     let oformat = match arch {
         "x86_64" => ("win64"),
         "x86" => ("win32"),
+        "aarch64" => (""), // we'll use clang.exe to compile it
         _ => panic!("unsupported arch: {}", arch),
     };
 
@@ -655,6 +676,13 @@ fn nasm(file: &Path, arch: &str, out_file: &Path, include_dir: &Path) -> Command
         std::path::MAIN_SEPARATOR,
     )));
 
+    match arch {
+        "aarch64" => clang(out_file, include_dir, file),
+        _ => nasm(out_file, oformat, include_dir, file),
+    }
+}
+
+fn nasm(out_file: &Path, oformat: &str, include_dir: std::ffi::OsString, file: &Path) -> Command {
     let mut c = Command::new("./target/tools/windows/nasm/nasm");
     let _ = c
         .arg("-o")
@@ -667,6 +695,23 @@ fn nasm(file: &Path, arch: &str, out_file: &Path, include_dir: &Path) -> Command
         .arg(include_dir)
         .arg("-Xgnu")
         .arg("-gcv8")
+        .arg(file);
+    c
+}
+
+fn clang(out_file: &Path, include_dir: std::ffi::OsString, file: &Path) -> Command {
+    let clang_target = "aarch64-windows";
+    let mut c = Command::new("clang");
+    let _ = c
+        .arg("-target")
+        .arg(clang_target)
+        .arg("-o")
+        .arg(out_file.to_str().expect("Invalid path"))
+        .arg("-I")
+        .arg("include/")
+        .arg("-I")
+        .arg(include_dir)
+        .arg("-c")
         .arg(file);
     c
 }
@@ -829,7 +874,7 @@ fn generate_prefix_symbols(
 ) -> Result<(), std::io::Error> {
     generate_prefix_symbols_header(out_dir, "prefix_symbols.h", '#', None, prefix)?;
 
-    if target.os == "windows" {
+    if target.os == WINDOWS && target.arch != AARCH64 {
         let _ = generate_prefix_symbols_nasm(out_dir, prefix)?;
     } else {
         generate_prefix_symbols_header(
