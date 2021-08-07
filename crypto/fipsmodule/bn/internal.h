@@ -185,8 +185,13 @@ void bn_mul_mont(BN_ULONG *rp, const BN_ULONG *ap, const BN_ULONG *bp,
 
 static inline void bn_umult_lohi(BN_ULONG *low_out, BN_ULONG *high_out,
                                  BN_ULONG a, BN_ULONG b) {
-#if defined(OPENSSL_X86_64) && defined(_MSC_VER) && !defined(__clang__)
+#if defined(_MSC_VER) && !defined(__clang__)
+#if defined(OPENSSL_X86_64)
   *low_out = _umul128(a, b, high_out);
+#elif defined(OPENSSL_AARCH64)
+  *low_out = a * b;
+  *high_out = __umulh(a, b);
+#endif
 #else
   BN_ULLONG result = (BN_ULLONG)a * b;
   *low_out = (BN_ULONG)result;
