@@ -35,9 +35,24 @@
 #endif
 typedef uint8_t Carry;
 #if LIMB_BITS == 64
+#if !defined(OPENSSL_AARCH64)
 #pragma intrinsic(_addcarry_u64, _subborrow_u64)
 #define RING_CORE_ADDCARRY_INTRINSIC _addcarry_u64
 #define RING_CORE_SUBBORROW_INTRINSIC _subborrow_u64
+#else
+#define RING_CORE_ADDCARRY(_carry, _a, _b, _r, _ret) do \
+{ \
+  Limb tmp = (_b) + (_carry); \
+  *(_r) = (_a) + tmp; \
+  (_ret) = ((_a) > (*(_r))) | ((_b) > tmp); \
+} while (0)
+#define RING_CORE_SUBBORROW(_borrow, _a, _b, _r, _ret) do \
+{ \
+  Limb tmp = (_a) - (_borrow); \
+  *(_r) = tmp - (_b); \
+  (_ret) = ((_a) < tmp) | ((*(_r)) > tmp); \
+} while (0)
+#endif
 #elif LIMB_BITS == 32
 #pragma intrinsic(_addcarry_u32, _subborrow_u32)
 #define RING_CORE_ADDCARRY_INTRINSIC _addcarry_u32
@@ -60,6 +75,8 @@ static inline Carry limb_adc(Limb *r, Limb a, Limb b, Carry carry_in) {
   Carry ret;
 #if defined(RING_CORE_ADDCARRY_INTRINSIC)
   ret = RING_CORE_ADDCARRY_INTRINSIC(carry_in, a, b, r);
+#elif defined(RING_CORE_ADDCARRY)
+  RING_CORE_ADDCARRY(carry_in, a, b, r, ret);
 #else
   DoubleLimb x = (DoubleLimb)a + b + carry_in;
   *r = (Limb)x;
@@ -74,6 +91,8 @@ static inline Carry limb_add(Limb *r, Limb a, Limb b) {
   Carry ret;
 #if defined(RING_CORE_ADDCARRY_INTRINSIC)
   ret = RING_CORE_ADDCARRY_INTRINSIC(0, a, b, r);
+#elif defined(RING_CORE_ADDCARRY)
+  RING_CORE_ADDCARRY(0, a, b, r, ret);
 #else
   DoubleLimb x = (DoubleLimb)a + b;
   *r = (Limb)x;
@@ -90,6 +109,8 @@ static inline Carry limb_sbb(Limb *r, Limb a, Limb b, Carry borrow_in) {
   Carry ret;
 #if defined(RING_CORE_SUBBORROW_INTRINSIC)
   ret = RING_CORE_SUBBORROW_INTRINSIC(borrow_in, a, b, r);
+#elif defined(RING_CORE_SUBBORROW)
+  RING_CORE_SUBBORROW(borrow_in, a, b, r, ret);
 #else
   DoubleLimb x = (DoubleLimb)a - b - borrow_in;
   *r = (Limb)x;
@@ -104,6 +125,8 @@ static inline Carry limb_sub(Limb *r, Limb a, Limb b) {
   Carry ret;
 #if defined(RING_CORE_SUBBORROW_INTRINSIC)
   ret = RING_CORE_SUBBORROW_INTRINSIC(0, a, b, r);
+#elif defined(RING_CORE_SUBBORROW)
+  RING_CORE_SUBBORROW(0, a, b, r, ret);
 #else
   DoubleLimb x = (DoubleLimb)a - b;
   *r = (Limb)x;

@@ -228,6 +228,13 @@ const ASM_TARGETS: &[AsmTarget] = &[
         asm_extension: "asm",
         preassemble: true,
     },
+    AsmTarget {
+        oss: &[WINDOWS],
+        arch: "aarch64",
+        perlasm_format: "win64",
+        asm_extension: "S",
+        preassemble: true,
+    },
 ];
 
 struct AsmTarget {

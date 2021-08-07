@@ -35,6 +35,10 @@
 #pragma warning(disable: 4244)
 // 'initializing': conversion from 'size_t' to 'fiat_p256_limb_t'
 #pragma warning(disable: 4267)
+// FIXME: don't ignore warning 4133 for Windows ARM64
+// 'function': incompatible types - from 'uint32_t *' to 'Limb *'
+// 'function': incompatible types - from 'fiat_p256_felem' to 'const Limb *'
+#pragma warning(disable: 4133)
 #endif
 
 #if defined(__GNUC__)
