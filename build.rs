@@ -372,7 +372,7 @@ fn pregenerate_asm_main() {
             let srcs = asm_srcs(perlasm_src_dsts);
             for src in srcs {
                 let obj_path = obj_path(&pregenerated, &src, MSVC_OBJ_EXT);
-                run_command(nasm(&src, asm_target.arch, &obj_path, &pregenerated));
+                run_command(win_asm(&src, asm_target.arch, &obj_path, &pregenerated));
             }
         }
     }
@@ -534,7 +534,7 @@ fn compile(p: &Path, target: &Target, warnings_are_errors: bool, out_dir: &Path)
         let cmd = if target.os != WINDOWS || ext != "asm" {
             cc(p, ext, target, warnings_are_errors, &out_path, out_dir)
         } else {
-            nasm(p, &target.arch, &out_path, out_dir)
+            win_asm(p, &target.arch, &out_path, out_dir)
         };
 
         run_command(cmd);
@@ -649,10 +649,11 @@ fn cc(
     c
 }
 
-fn nasm(file: &Path, arch: &str, out_file: &Path, include_dir: &Path) -> Command {
+fn win_asm(file: &Path, arch: &str, out_file: &Path, include_dir: &Path) -> Command {
     let oformat = match arch {
         "x86_64" => ("win64"),
         "x86" => ("win32"),
+        "aarch64" => (""), // we'll use clang.exe to compile it
         _ => panic!("unsupported arch: {}", arch),
     };
 
@@ -662,6 +663,13 @@ fn nasm(file: &Path, arch: &str, out_file: &Path, include_dir: &Path) -> Command
         std::path::MAIN_SEPARATOR,
     )));
 
+    match arch {
+        "aarch64" => clang(out_file, include_dir, file),
+        _ => nasm(out_file, oformat, include_dir, file)
+    }
+}
+
+fn nasm(out_file: &Path, oformat: &str, include_dir: std::ffi::OsString, file: &Path) -> Command {
     let mut c = Command::new("./target/tools/windows/nasm/nasm");
     let _ = c
         .arg("-o")
@@ -674,6 +682,20 @@ fn nasm(file: &Path, arch: &str, out_file: &Path, include_dir: &Path) -> Command
         .arg(include_dir)
         .arg("-Xgnu")
         .arg("-gcv8")
+        .arg(file);
+    c
+}
+
+fn clang(out_file: &Path, include_dir: std::ffi::OsString, file: &Path) -> Command {
+    let mut c = Command::new("clang.exe");
+    let _ = c
+        .arg("-o")
+        .arg(out_file.to_str().expect("Invalid path"))
+        .arg("-I")
+        .arg("include/")
+        .arg("-I")
+        .arg(include_dir)
+        .arg("-c")
         .arg(file);
     c
 }
