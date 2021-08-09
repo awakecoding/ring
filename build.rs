@@ -721,9 +721,12 @@ fn find_clang() -> Option<PathBuf> {
 }
 
 fn clang(out_file: &Path, include_dir: std::ffi::OsString, file: &Path) -> Command {
-    let clang_exe = find_clang().expect("could not find nasm in path!");
+    let clang_exe = find_clang().expect("could not find clang in path!");
+    let clang_target = "aarch64-windows";
     let mut c = Command::new(clang_exe);
     let _ = c
+        .arg("-target")
+        .arg(clang_target)
         .arg("-o")
         .arg(out_file.to_str().expect("Invalid path"))
         .arg("-I")
