@@ -24,6 +24,7 @@ use std::{
     io::Write,
     path::{Path, PathBuf},
     process::Command,
+    ffi::{OsString}
 };
 
 const X86: &str = "x86";
@@ -292,6 +293,24 @@ const MSVC_OBJ_EXT: &str = "obj";
 fn read_env_var(name: &'static str) -> Result<String, std::env::VarError> {
     println!("cargo:rerun-if-env-changed={}", name);
     std::env::var(name)
+}
+
+// Find executable in PATH with optional extra search directories
+fn find_in_path(path: &Path, extra: Vec<&Path>) -> Option<PathBuf> {
+    #[cfg(target_os = "windows")]
+    let path = &path.with_extension("exe");
+
+    if let Some(found) = std::env::split_paths(&std::env::var_os("PATH").unwrap_or(OsString::new()))
+        .map(|p| p.join(path))
+        .find(|p| fs::metadata(p).is_ok()) {
+            return Some(found);
+        }
+    if let Some(found) = extra.iter()
+        .map(|p| p.join(path))
+        .find(|p| fs::metadata(p).is_ok()) {
+            return Some(found);
+        }
+    return None;
 }
 
 fn main() {
@@ -668,8 +687,17 @@ fn win_asm(file: &Path, arch: &str, out_file: &Path, include_dir: &Path) -> Comm
     }
 }
 
+fn find_nasm() -> Option<PathBuf> {
+    let program_files = std::env::var("ProgramFiles").unwrap();
+    let nasm_program_files = Path::new(&program_files).join(Path::new("NASM"));
+    let nasm_target_tools = std::env::current_dir().unwrap().join(Path::new("target/tools/windows/nasm"));
+    let extra: Vec<&Path> = vec![&nasm_target_tools, &nasm_program_files];
+    find_in_path(Path::new("nasm"), extra)
+}
+
 fn nasm(out_file: &Path, oformat: &str, include_dir: std::ffi::OsString, file: &Path) -> Command {
-    let mut c = Command::new("./target/tools/windows/nasm/nasm");
+    let nasm_exe = find_nasm().expect("could not find nasm in path!");
+    let mut c = Command::new(nasm_exe);
     let _ = c
         .arg("-o")
         .arg(out_file.to_str().expect("Invalid path"))
@@ -685,8 +713,16 @@ fn nasm(out_file: &Path, oformat: &str, include_dir: std::ffi::OsString, file: &
     c
 }
 
+fn find_clang() -> Option<PathBuf> {
+    let program_files = std::env::var("ProgramFiles").unwrap();
+    let clang_program_files = Path::new(&program_files).join(Path::new("LLVM\\bin"));
+    let extra: Vec<&Path> = vec![&clang_program_files];
+    find_in_path(Path::new("clang"), extra)
+}
+
 fn clang(out_file: &Path, include_dir: std::ffi::OsString, file: &Path) -> Command {
-    let mut c = Command::new("clang.exe");
+    let clang_exe = find_clang().expect("could not find nasm in path!");
+    let mut c = Command::new(clang_exe);
     let _ = c
         .arg("-o")
         .arg(out_file.to_str().expect("Invalid path"))
