@@ -484,7 +484,6 @@ fn build_library(
     let objs = additional_srcs
         .iter()
         .chain(srcs.iter())
-        .filter(|f| &target.env != "msvc" || f.extension().unwrap().to_str().unwrap() != "S")
         .map(|f| compile(f, target, warnings_are_errors, out_dir))
         .collect::<Vec<_>>();
 
@@ -531,7 +530,7 @@ fn compile(p: &Path, target: &Target, warnings_are_errors: bool, out_dir: &Path)
     } else {
         let mut out_path = out_dir.join(p.file_name().unwrap());
         assert!(out_path.set_extension(target.obj_ext));
-        let cmd = if target.os != WINDOWS || ext != "asm" {
+        let cmd = if target.os != WINDOWS || (ext != "asm" && ext != "S") {
             cc(p, ext, target, warnings_are_errors, &out_path, out_dir)
         } else {
             win_asm(p, &target.arch, &out_path, out_dir)
@@ -858,7 +857,7 @@ fn generate_prefix_symbols(
 ) -> Result<(), std::io::Error> {
     generate_prefix_symbols_header(out_dir, "prefix_symbols.h", '#', None, prefix)?;
 
-    if target.os == "windows" {
+    if target.os == "windows" && target.arch != "aarch64" {
         let _ = generate_prefix_symbols_nasm(out_dir, prefix)?;
     } else {
         generate_prefix_symbols_header(
