@@ -24,6 +24,7 @@ use std::{
     io::Write,
     path::{Path, PathBuf},
     process::Command,
+    ffi::{OsString}
 };
 
 const X86: &str = "x86";
@@ -346,9 +347,9 @@ fn pregenerate_asm_main() {
     println!("cargo:rustc-cfg=pregenerate_asm_only");
 
     let pregenerated = PathBuf::from(PREGENERATED);
-    std::fs::create_dir(&pregenerated).unwrap();
+    let _ = std::fs::create_dir(&pregenerated);
     let pregenerated_tmp = pregenerated.join("tmp");
-    std::fs::create_dir(&pregenerated_tmp).unwrap();
+    let _ = std::fs::create_dir(&pregenerated_tmp);
 
     let mut generated_prefix_headers = false;
 
@@ -662,6 +663,24 @@ fn cc(
     c
 }
 
+// Find executable in PATH with optional extra search directories
+fn find_in_path(path: &Path, extra: Vec<&Path>) -> Option<PathBuf> {
+    #[cfg(target_os = "windows")]
+    let path = &path.with_extension("exe");
+
+    if let Some(found) = std::env::split_paths(&std::env::var_os("PATH").unwrap_or(OsString::new()))
+        .map(|p| p.join(path))
+        .find(|p| fs::metadata(p).is_ok()) {
+            return Some(found);
+        }
+    if let Some(found) = extra.iter()
+        .map(|p| p.join(path))
+        .find(|p| fs::metadata(p).is_ok()) {
+            return Some(found);
+        }
+    return None;
+}
+
 fn win_asm(file: &Path, arch: &str, out_file: &Path, include_dir: &Path) -> Command {
     let oformat = match arch {
         "x86_64" => ("win64"),
@@ -682,8 +701,17 @@ fn win_asm(file: &Path, arch: &str, out_file: &Path, include_dir: &Path) -> Comm
     }
 }
 
+fn find_nasm() -> Option<PathBuf> {
+    let program_files = std::env::var("ProgramFiles").unwrap();
+    let nasm_program_files = Path::new(&program_files).join(Path::new("NASM"));
+    let nasm_target_tools = std::env::current_dir().unwrap().join(Path::new("target/tools/windows/nasm"));
+    let extra: Vec<&Path> = vec![&nasm_target_tools, &nasm_program_files];
+    find_in_path(Path::new("nasm"), extra)
+}
+
 fn nasm(out_file: &Path, oformat: &str, include_dir: std::ffi::OsString, file: &Path) -> Command {
-    let mut c = Command::new("./target/tools/windows/nasm/nasm");
+    let nasm_exe = find_nasm().expect("could not find nasm in path!");
+    let mut c = Command::new(nasm_exe);
     let _ = c
         .arg("-o")
         .arg(out_file.to_str().expect("Invalid path"))
@@ -699,9 +727,17 @@ fn nasm(out_file: &Path, oformat: &str, include_dir: std::ffi::OsString, file: &
     c
 }
 
+fn find_clang() -> Option<PathBuf> {
+    let program_files = std::env::var("ProgramFiles").unwrap();
+    let clang_program_files = Path::new(&program_files).join(Path::new("LLVM\\bin"));
+    let extra: Vec<&Path> = vec![&clang_program_files];
+    find_in_path(Path::new("clang"), extra)
+}
+
 fn clang(out_file: &Path, include_dir: std::ffi::OsString, file: &Path) -> Command {
+    let clang_exe = find_clang().expect("could not find clang in path!");
     let clang_target = "aarch64-windows";
-    let mut c = Command::new("clang");
+    let mut c = Command::new(clang_exe);
     let _ = c
         .arg("-target")
         .arg(clang_target)
