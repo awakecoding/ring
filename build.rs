@@ -358,7 +358,7 @@ fn build_c_code(target: &Target, pregenerated: PathBuf, out_dir: &Path) {
         })
         .unwrap();
 
-    let use_pregenerated = !target.is_git;
+    let use_pregenerated = true;
     let warnings_are_errors = target.is_git;
 
     let asm_dir = if use_pregenerated {
@@ -790,6 +790,10 @@ fn perlasm(
 }
 
 fn need_run(source: &Path, target: &Path, includes_modified: SystemTime) -> bool {
+    if !source.exists() {
+        return true;
+    }
+
     let s_modified = file_modified(source);
     if let Ok(target_metadata) = std::fs::metadata(target) {
         let target_modified = target_metadata.modified().unwrap();

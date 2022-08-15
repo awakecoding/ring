@@ -180,7 +180,7 @@ pub(crate) mod arm {
             features |= SHA256.mask;
         }
 
-        unsafe { OPENSSL_armcap_P = features };
+        unsafe { GFp_armcap_P = features };
     }
 
     macro_rules! features {
